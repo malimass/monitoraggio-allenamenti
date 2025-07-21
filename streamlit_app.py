@@ -48,10 +48,6 @@ if len(date_range) == 2:
 else:
     df_filtered = df
 
-# Visualizzazione tabella dati
-st.subheader("Tabella riepilogativa")
-st.dataframe(df_filtered)
-
 # Grafico distanza
 st.subheader("Andamento della Distanza Percorsa")
 fig1, ax1 = plt.subplots()
