@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 # Titolo app
 st.title("Monitoraggio Allenamenti Massimo Malivindi")
 
-# Dati inseriti manualmente in un DataFrame (puoi sostituirli con caricamento CSV)
-dati = [
+# Dati allenamenti
+raw_data = [
     ["28-05-2025", 0.0, 106, 976],
     ["30-05-2025", 0.0, 110, 364],
     ["01-06-2025", 0.0, 113, 383],
@@ -29,38 +29,42 @@ dati = [
     ["21-07-2025", 7.54, 110, 722]
 ]
 
-# Creazione del DataFrame
-df = pd.DataFrame(dati, columns=["Data", "Distanza (km)", "FC media", "Calorie"])
+# Crea DataFrame
+columns = ["Data", "Distanza (km)", "FC media", "Calorie"]
+df = pd.DataFrame(raw_data, columns=columns)
 df["Data"] = pd.to_datetime(df["Data"], format="%d-%m-%Y")
 df = df.sort_values("Data")
 
-# Visualizzazione tabella dati
+# Mostra tabella
 st.subheader("Tabella riepilogativa")
 st.dataframe(df)
 
-# Grafico distanza
+# Grafico Distanza
 st.subheader("Andamento della Distanza Percorsa")
 fig1, ax1 = plt.subplots()
 ax1.plot(df["Data"], df["Distanza (km)"], marker='o')
 ax1.set_ylabel("Distanza (km)")
 ax1.set_xlabel("Data")
-ax1.grid(True)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
 st.pyplot(fig1)
 
-# Grafico frequenza cardiaca
+# Grafico Frequenza Cardiaca
 st.subheader("Andamento della Frequenza Cardiaca Media")
 fig2, ax2 = plt.subplots()
 ax2.plot(df["Data"], df["FC media"], color='orange', marker='x')
 ax2.set_ylabel("Frequenza Cardiaca Media (bpm)")
 ax2.set_xlabel("Data")
-ax2.grid(True)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
 st.pyplot(fig2)
 
-# Grafico calorie
+# Grafico Calorie
 st.subheader("Andamento Calorie Bruciate")
 fig3, ax3 = plt.subplots()
 ax3.bar(df["Data"], df["Calorie"], color='green')
 ax3.set_ylabel("Calorie")
 ax3.set_xlabel("Data")
-ax3.tick_params(axis='x', rotation=45)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
 st.pyplot(fig3)
