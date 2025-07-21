@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 # Titolo app
 st.title("Monitoraggio Allenamenti Massimo Malivindi")
 
-# Dati allenamenti
+# Dati inseriti manualmente in un DataFrame
 raw_data = [
     ["28-05-2025", 0.0, 106, 976],
     ["30-05-2025", 0.0, 110, 364],
@@ -29,42 +29,54 @@ raw_data = [
     ["21-07-2025", 7.54, 110, 722]
 ]
 
-# Crea DataFrame
+# Creazione del DataFrame
 columns = ["Data", "Distanza (km)", "FC media", "Calorie"]
 df = pd.DataFrame(raw_data, columns=columns)
 df["Data"] = pd.to_datetime(df["Data"], format="%d-%m-%Y")
 df = df.sort_values("Data")
 
-# Mostra tabella
-st.subheader("Tabella riepilogativa")
-st.dataframe(df)
+# Intervallo di date selezionabile
+st.sidebar.header("Filtra per data")
+min_date = df["Data"].min()
+max_date = df["Data"].max()
+date_range = st.sidebar.date_input("Seleziona l'intervallo", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-# Grafico Distanza
+# Filtro sul DataFrame
+if len(date_range) == 2:
+    start_date, end_date = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+    df_filtered = df[(df["Data"] >= start_date) & (df["Data"] <= end_date)]
+else:
+    df_filtered = df
+
+# Visualizzazione tabella dati
+st.subheader("Tabella riepilogativa")
+st.dataframe(df_filtered)
+
+# Grafico distanza
 st.subheader("Andamento della Distanza Percorsa")
 fig1, ax1 = plt.subplots()
-ax1.plot(df["Data"], df["Distanza (km)"], marker='o')
+ax1.plot(df_filtered["Data"], df_filtered["Distanza (km)"], marker='o')
 ax1.set_ylabel("Distanza (km)")
 ax1.set_xlabel("Data")
-plt.xticks(rotation=45, ha='right')
-plt.tight_layout()
+ax1.tick_params(axis='x', rotation=45)
+ax1.grid(True)
 st.pyplot(fig1)
 
-# Grafico Frequenza Cardiaca
+# Grafico frequenza cardiaca
 st.subheader("Andamento della Frequenza Cardiaca Media")
 fig2, ax2 = plt.subplots()
-ax2.plot(df["Data"], df["FC media"], color='orange', marker='x')
+ax2.plot(df_filtered["Data"], df_filtered["FC media"], color='orange', marker='x')
 ax2.set_ylabel("Frequenza Cardiaca Media (bpm)")
 ax2.set_xlabel("Data")
-plt.xticks(rotation=45, ha='right')
-plt.tight_layout()
+ax2.tick_params(axis='x', rotation=45)
+ax2.grid(True)
 st.pyplot(fig2)
 
-# Grafico Calorie
+# Grafico calorie
 st.subheader("Andamento Calorie Bruciate")
 fig3, ax3 = plt.subplots()
-ax3.bar(df["Data"], df["Calorie"], color='green')
+ax3.bar(df_filtered["Data"], df_filtered["Calorie"], color='green')
 ax3.set_ylabel("Calorie")
 ax3.set_xlabel("Data")
-plt.xticks(rotation=45, ha='right')
-plt.tight_layout()
+ax3.tick_params(axis='x', rotation=45)
 st.pyplot(fig3)
