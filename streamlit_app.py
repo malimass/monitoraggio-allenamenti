@@ -30,13 +30,27 @@ if os.path.exists(data_dir):
                     record = json.load(f)
                     if isinstance(record, dict):
                         try:
-                            start_time_raw = record.get("start_time")
+                            # Supporto a formato Polar moderno
+                            start_time_raw = record.get("startTime") or record.get("start_time")
                             distance_raw = record.get("distance", 0)
                             duration_raw = record.get("duration", 0)
-                            calories_raw = record.get("calories", None)
-                            hr_raw = record.get("heart_rate", {}).get("average", None)
+                            calories_raw = record.get("kiloCalories") or record.get("calories")
 
-                            # Conversioni sicure
+                            heart_data = record.get("heartRate") or record.get("heart_rate") or {}
+                            hr_raw = heart_data.get("avg") or heart_data.get("average")
+
+                            # Parsing orario
+                            try:
+                                if isinstance(start_time_raw, str):
+                                    start_time = datetime.fromisoformat(start_time_raw).date()
+                                elif isinstance(start_time_raw, (int, float)):
+                                    start_time = datetime.fromtimestamp(start_time_raw / 1000).date()
+                                else:
+                                    start_time = None
+                            except Exception:
+                                start_time = None
+
+                            # Parsing durata
                             if isinstance(duration_raw, str):
                                 if duration_raw.startswith("PT"):
                                     duration_raw = parse_iso_duration(duration_raw)
@@ -46,11 +60,6 @@ if os.path.exists(data_dir):
                                 duration_raw = float(duration_raw)
                             else:
                                 duration_raw = 0
-
-                            try:
-                                start_time = datetime.fromtimestamp(int(start_time_raw) / 1000).date() if start_time_raw else None
-                            except Exception:
-                                start_time = None
 
                             distanza_km = round(float(distance_raw) / 1000, 2) if distance_raw else 0
                             durata_ore = round(duration_raw / 3600, 2) if duration_raw else 0
@@ -135,6 +144,7 @@ if data:
     st.pyplot(fig5)
 else:
     st.info("Nessun dato disponibile da visualizzare.")
+
 
 
 
