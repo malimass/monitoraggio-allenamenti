@@ -1,66 +1,70 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
+import os
+from datetime import datetime
 
-# Titolo app
-st.title("Monitoraggio Allenamenti Massimo Malivindi")
+st.title("Analisi Allenamenti - Caricamento Multiplo JSON")
 
-# Dati inseriti manualmente in un DataFrame (puoi sostituirli con caricamento CSV)
-dati = [
-    ["28-05-2025", 0.0, 106, 976],
-    ["30-05-2025", 0.0, 110, 364],
-    ["01-06-2025", 0.0, 113, 383],
-    ["04-06-2025", 0.0, 112, 368],
-    ["20-06-2025", 9.14, 124, 1479],
-    ["22-06-2025", 9.14, 137, 1130],
-    ["23-06-2025", 18.08, 115, 2010],
-    ["25-06-2025", 7.76, 125, 827],
-    ["27-06-2025", 10.31, 115, 940],
-    ["02-07-2025", 19.02, 122, 1291],
-    ["04-07-2025", 7.16, 118, 658],
-    ["06-07-2025", 11.88, 114, 1509],
-    ["08-07-2025", 18.79, 112, 1686],
-    ["10-07-2025", 7.18, 112, 750],
-    ["11-07-2025", 8.41, 118, 814],
-    ["13-07-2025", 20.04, 112, 2320],
-    ["15-07-2025", 18.39, 90, 1552],
-    ["17-07-2025", 12.34, 103, 1016],
-    ["20-07-2025", 22.69, 122, 2668],
-    ["21-07-2025", 7.54, 110, 722]
-]
+uploaded_files = st.file_uploader("Carica i file JSON degli allenamenti", type="json", accept_multiple_files=True)
 
-# Creazione del DataFrame
-df = pd.DataFrame(dati, columns=["Data", "Distanza (km)", "FC media", "Calorie"])
-df["Data"] = pd.to_datetime(df["Data"], format="%d-%m-%Y")
-df = df.sort_values("Data")
+if uploaded_files:
+    all_data = []
 
-# Visualizzazione tabella dati
-st.subheader("Tabella riepilogativa")
-st.dataframe(df)
+    for uploaded_file in uploaded_files:
+        try:
+            content = json.load(uploaded_file)
+            summary = content.get("summary", {})
+            samples = content.get("samples", {})
 
-# Grafico distanza
-st.subheader("Andamento della Distanza Percorsa")
-fig1, ax1 = plt.subplots()
-ax1.plot(df["Data"], df["Distanza (km)"], marker='o')
-ax1.set_ylabel("Distanza (km)")
-ax1.set_xlabel("Data")
-ax1.grid(True)
-st.pyplot(fig1)
+            data_attivita = datetime.strptime(content.get("start_time", ""), "%Y-%m-%dT%H:%M:%S.%fZ")
+            distanza_km = summary.get("distance", 0.0) / 1000
+            durata_sec = summary.get("duration", 0.0)
+            durata_ore = durata_sec / 3600
+            calorie = summary.get("calories", 0.0)
+            fc_media = summary.get("avg_hr", 0.0)
+            velocita_media_kmh = (distanza_km / durata_sec) * 3600 if durata_sec > 0 else 0
 
-# Grafico frequenza cardiaca
-st.subheader("Andamento della Frequenza Cardiaca Media")
-fig2, ax2 = plt.subplots()
-ax2.plot(df["Data"], df["FC media"], color='orange', marker='x')
-ax2.set_ylabel("Frequenza Cardiaca Media (bpm)")
-ax2.set_xlabel("Data")
-ax2.grid(True)
-st.pyplot(fig2)
+            all_data.append({
+                "Data": data_attivita,
+                "Distanza (km)": round(distanza_km, 2),
+                "Durata (h)": round(durata_ore, 2),
+                "Frequenza Cardiaca Media (bpm)": fc_media,
+                "Calorie": calorie,
+                "Velocità Media (km/h)": round(velocita_media_kmh, 2)
+            })
+        except Exception as e:
+            st.error(f"Errore nel file {uploaded_file.name}: {e}")
 
-# Grafico calorie
-st.subheader("Andamento Calorie Bruciate")
-fig3, ax3 = plt.subplots()
-ax3.bar(df["Data"], df["Calorie"], color='green')
-ax3.set_ylabel("Calorie")
-ax3.set_xlabel("Data")
-ax3.tick_params(axis='x', rotation=45)
-st.pyplot(fig3)
+    df = pd.DataFrame(all_data)
+    df = df.sort_values("Data")
+
+    st.subheader("Tabella riepilogativa")
+    st.dataframe(df)
+
+    # Grafici
+    def plot_line_chart(x, y, ylabel):
+        fig, ax = plt.subplots()
+        ax.plot(x, y, marker='o')
+        ax.set_xlabel("Data")
+        ax.set_ylabel(ylabel)
+        ax.tick_params(axis='x', rotation=45)
+        ax.grid(True)
+        st.pyplot(fig)
+
+    st.subheader("Andamento della Distanza")
+    plot_line_chart(df["Data"], df["Distanza (km)"], "Distanza (km)")
+
+    st.subheader("Andamento della Durata Totale (ore)")
+    plot_line_chart(df["Data"], df["Durata (h)"], "Durata (h)")
+
+    st.subheader("Andamento della Frequenza Cardiaca Media")
+    plot_line_chart(df["Data"], df["Frequenza Cardiaca Media (bpm)"], "FC Media (bpm)")
+
+    st.subheader("Andamento delle Calorie Bruciate")
+    plot_line_chart(df["Data"], df["Calorie"], "Calorie")
+
+    st.subheader("Andamento della Velocità Media")
+    plot_line_chart(df["Data"], df["Velocità Media (km/h)"], "Velocità Media (km/h)")
+
