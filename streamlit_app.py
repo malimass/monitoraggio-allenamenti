@@ -2,81 +2,93 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import json
+import os
 from datetime import datetime
 
-st.title("Analisi Allenamenti per Preparatore Atletico")
+st.set_page_config(layout="wide")
+st.title("Monitoraggio Allenamenti - Analisi Multi-file")
 
-uploaded_files = st.sidebar.file_uploader(
-    "Carica uno o più file JSON degli allenamenti:",
-    type="json",
-    accept_multiple_files=True
-)
+# Caricamento multiplo dei file JSON
+data_files = st.file_uploader("Carica i file JSON degli allenamenti", type="json", accept_multiple_files=True)
 
-def extract_data_from_json(file):
+# Lista per raccogliere i dati
+data = []
+
+# Estrazione dei dati dagli allenamenti
+for file in data_files:
     try:
-        data = json.load(file)
-        start_time = pd.to_datetime(data.get('start_time', data.get('start_time_local', '')))
-        distance_km = float(data.get('distance', 0)) / 1000
-        duration_sec = float(data.get('elapsed_time', 0))
-        duration_hr = round(duration_sec / 3600, 2)
-        heart_rate = data.get('average_heartrate', None)
-        calories = data.get('calories', None)
-
-        return {
-            'Data': start_time,
-            'Distanza (km)': round(distance_km, 2),
-            'Durata (h)': duration_hr,
-            'FC media': heart_rate,
-            'Calorie': calories
-        }
+        obj = json.load(file)
+        if isinstance(obj, dict):
+            # Verifica chiave 'start_time' per identificare un file attività valido
+            if 'start_time' in obj:
+                data.append({
+                    "Data": pd.to_datetime(obj.get("start_time")),
+                    "Distanza (km)": round(obj.get("distance", 0) / 1000, 2),
+                    "Durata (ore)": round(obj.get("duration", 0) / 3600, 2),
+                    "Frequenza cardiaca media (bpm)": obj.get("heart_rate", {}).get("average", None),
+                    "Calorie": obj.get("calories", None),
+                    "Velocità media (km/h)": round((obj.get("distance", 0) / 1000) / (obj.get("duration", 1) / 3600), 2)
+                })
+        else:
+            st.warning(f"Errore nel file {file.name}: struttura JSON non supportata.")
     except Exception as e:
         st.warning(f"Errore nel file {file.name}: {e}")
-        return None
 
-if uploaded_files:
-    allenamenti = []
-    for file in uploaded_files:
-        dati = extract_data_from_json(file)
-        if dati:
-            allenamenti.append(dati)
-
-    df = pd.DataFrame(allenamenti)
-    df = df.dropna(subset=['Data'])
+# Se ci sono dati, creare DataFrame e visualizzare grafici
+if data:
+    df = pd.DataFrame(data)
     df = df.sort_values("Data")
 
-    # Selezione intervallo date
-    st.sidebar.header("Filtra per data")
-    min_date = df["Data"].min().date()
-    max_date = df["Data"].max().date()
+    # Filtro per data
+    st.sidebar.header("Filtro per data")
+    min_date = df["Data"].min()
+    max_date = df["Data"].max()
     date_range = st.sidebar.date_input("Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
 
     if len(date_range) == 2:
         df = df[(df["Data"] >= pd.to_datetime(date_range[0])) & (df["Data"] <= pd.to_datetime(date_range[1]))]
 
-    # Grafici
-    st.subheader("Andamento della Distanza")
-    fig1, ax1 = plt.subplots()
-    ax1.plot(df["Data"], df["Distanza (km)"], marker='o')
-    ax1.set_ylabel("Distanza (km)")
-    ax1.tick_params(axis='x', rotation=45)
-    ax1.grid(True)
-    st.pyplot(fig1)
+    st.markdown("### Grafici di Performance")
+    col1, col2 = st.columns(2)
 
-    st.subheader("Frequenza Cardiaca Media")
-    fig2, ax2 = plt.subplots()
-    ax2.plot(df["Data"], df["FC media"], marker='x', color='orange')
-    ax2.set_ylabel("FC media (bpm)")
-    ax2.tick_params(axis='x', rotation=45)
-    ax2.grid(True)
-    st.pyplot(fig2)
+    with col1:
+        fig1, ax1 = plt.subplots()
+        ax1.plot(df["Data"], df["Distanza (km)"], marker='o')
+        ax1.set_title("Distanza Percorsa")
+        ax1.set_ylabel("Km")
+        ax1.tick_params(axis='x', rotation=45)
+        st.pyplot(fig1)
 
-    st.subheader("Calorie Bruciate")
-    fig3, ax3 = plt.subplots()
-    ax3.bar(df["Data"], df["Calorie"], color='green')
-    ax3.set_ylabel("Calorie")
-    ax3.tick_params(axis='x', rotation=45)
-    st.pyplot(fig3)
+        fig2, ax2 = plt.subplots()
+        ax2.plot(df["Data"], df["Durata (ore)"], color='green', marker='x')
+        ax2.set_title("Durata Totale")
+        ax2.set_ylabel("Ore")
+        ax2.tick_params(axis='x', rotation=45)
+        st.pyplot(fig2)
 
+    with col2:
+        fig3, ax3 = plt.subplots()
+        ax3.plot(df["Data"], df["Frequenza cardiaca media (bpm)"], color='red', marker='s')
+        ax3.set_title("Frequenza Cardiaca Media")
+        ax3.set_ylabel("BPM")
+        ax3.tick_params(axis='x', rotation=45)
+        st.pyplot(fig3)
+
+        fig4, ax4 = plt.subplots()
+        ax4.bar(df["Data"], df["Calorie"], color='orange')
+        ax4.set_title("Calorie Bruciate")
+        ax4.set_ylabel("kcal")
+        ax4.tick_params(axis='x', rotation=45)
+        st.pyplot(fig4)
+
+    st.markdown("### Grafico Velocità Media")
+    fig5, ax5 = plt.subplots()
+    ax5.plot(df["Data"], df["Velocità media (km/h)"], color='purple', marker='d')
+    ax5.set_ylabel("km/h")
+    ax5.set_xlabel("Data")
+    ax5.set_title("Velocità Media")
+    ax5.tick_params(axis='x', rotation=45)
+    st.pyplot(fig5)
 else:
-    st.info("Carica i file JSON per vedere l'analisi.")
+    st.info("Carica uno o più file JSON per iniziare l'analisi.")
 
