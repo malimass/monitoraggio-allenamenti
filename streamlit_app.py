@@ -7,6 +7,60 @@ from datetime import datetime
 import re
 
 st.title("Monitoraggio Allenamenti - Massimo Malivindi")
+st.sidebar.header("Carica file JSON manualmente")
+
+uploaded_files = st.sidebar.file_uploader(
+    "Trascina qui uno o più file JSON",
+    type=["json"],
+    accept_multiple_files=True
+)
+
+# Se vengono caricati file manualmente, li usiamo al posto dei file nella cartella
+if uploaded_files:
+    data = []  # sovrascrive l'elenco
+    for uploaded_file in uploaded_files:
+        try:
+            record = json.load(uploaded_file)
+            if isinstance(record, dict):
+                try:
+                    start_time_raw = record.get("startTime") or record.get("start_time")
+                    distance_raw = record.get("distance", 0)
+                    duration_raw = record.get("duration", 0)
+                    calories_raw = record.get("kiloCalories") or record.get("calories")
+
+                    heart_data = record.get("heartRate") or record.get("heart_rate") or {}
+                    hr_raw = heart_data.get("avg") or heart_data.get("average")
+
+                    if isinstance(start_time_raw, str):
+                        start_time = datetime.fromisoformat(start_time_raw).date()
+                    elif isinstance(start_time_raw, (int, float)):
+                        start_time = datetime.fromtimestamp(start_time_raw / 1000).date()
+                    else:
+                        start_time = None
+
+                    if isinstance(duration_raw, str) and duration_raw.startswith("PT"):
+                        duration_raw = parse_iso_duration(duration_raw)
+                    elif isinstance(duration_raw, (int, float)):
+                        duration_raw = float(duration_raw)
+                    else:
+                        duration_raw = 0
+
+                    distanza_km = round(float(distance_raw) / 1000, 2) if distance_raw else 0
+                    durata_ore = round(duration_raw / 3600, 2) if duration_raw else 0
+                    velocita = round(distanza_km / durata_ore, 2) if durata_ore else 0
+
+                    data.append({
+                        "Data": start_time,
+                        "Distanza (km)": distanza_km,
+                        "Durata (h)": durata_ore,
+                        "FC media": float(hr_raw) if hr_raw else None,
+                        "Calorie": float(calories_raw) if calories_raw else None,
+                        "Velocità media (km/h)": velocita
+                    })
+                except Exception as e:
+                    st.warning(f"Errore nel file caricato {uploaded_file.name}: {e}")
+        except Exception as e:
+            st.warning(f"Errore nel parsing JSON del file {uploaded_file.name}: {e}")
 
 # Cartella contenente i file JSON esportati da Polar Flow
 data_dir = "dati"
