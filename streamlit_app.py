@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import json
 from datetime import datetime
+import re
 
 st.title("Monitoraggio Allenamenti - Massimo Malivindi")
 
@@ -11,6 +12,13 @@ st.title("Monitoraggio Allenamenti - Massimo Malivindi")
 data_dir = "dati"
 
 data = []
+
+# Funzione per convertire la durata da formato ISO 8601 (es. 'PT4819.500S') a secondi
+def parse_iso_duration(duration_str):
+    match = re.match(r"PT(\d+(\.\d+)?)S", duration_str)
+    if match:
+        return float(match.group(1))
+    return 0
 
 # Verifica che la cartella esista
 if os.path.exists(data_dir):
@@ -28,12 +36,18 @@ if os.path.exists(data_dir):
                             calories_raw = record.get("calories", None)
                             hr_raw = record.get("heart_rate", {}).get("average", None)
 
+                            # Conversioni sicure
+                            if isinstance(duration_raw, str):
+                                duration_raw = parse_iso_duration(duration_raw)
+                            else:
+                                duration_raw = float(duration_raw)
+
                             start_time = (
                                 datetime.fromtimestamp(int(start_time_raw) / 1000).date()
                                 if start_time_raw else None
                             )
                             distanza_km = round(float(distance_raw) / 1000, 2) if distance_raw else 0
-                            durata_ore = round(float(duration_raw) / 3600, 2) if duration_raw else 0
+                            durata_ore = round(duration_raw / 3600, 2) if duration_raw else 0
                             velocita = round(distanza_km / durata_ore, 2) if durata_ore else 0
 
                             data.append({
@@ -108,3 +122,4 @@ if data:
     st.pyplot(fig5)
 else:
     st.info("Nessun dato disponibile da visualizzare.")
+
