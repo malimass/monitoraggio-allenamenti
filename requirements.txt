@@ -1,3 +1,8 @@
 streamlit
 pandas
 matplotlib
+
+streamlit>=1.32
+pandas>=2.0
+matplotlib>=3.5
+python_version>=3.8
