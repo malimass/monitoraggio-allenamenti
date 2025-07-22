@@ -38,9 +38,14 @@ if os.path.exists(data_dir):
 
                             # Conversioni sicure
                             if isinstance(duration_raw, str):
-                                duration_raw = parse_iso_duration(duration_raw)
-                            else:
+                                if duration_raw.startswith("PT"):
+                                    duration_raw = parse_iso_duration(duration_raw)
+                                else:
+                                    duration_raw = float(duration_raw.replace(",", "."))
+                            elif isinstance(duration_raw, (int, float)):
                                 duration_raw = float(duration_raw)
+                            else:
+                                duration_raw = 0
 
                             start_time = (
                                 datetime.fromtimestamp(int(start_time_raw) / 1000).date()
@@ -76,11 +81,14 @@ if data:
     if not df["Data"].isnull().all():
         min_date = df["Data"].min().date()
         max_date = df["Data"].max().date()
-        date_range = st.sidebar.date_input("Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
+        try:
+            date_range = st.sidebar.date_input("Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            df = df[(df["Data"] >= pd.to_datetime(start_date)) & (df["Data"] <= pd.to_datetime(end_date))]
+            if len(date_range) == 2:
+                start_date, end_date = date_range
+                df = df[(df["Data"] >= pd.to_datetime(start_date)) & (df["Data"] <= pd.to_datetime(end_date))]
+        except Exception as e:
+            st.warning(f"Errore nella selezione delle date: {e}")
     else:
         st.warning("Non ci sono date valide nei dati. Controlla i file JSON nella cartella 'dati'.")
 
