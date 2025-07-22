@@ -1,0 +1,37 @@
+{
+  "exportVersion": "2.6",
+  "username": "massimo.malivindi@gmail.com",
+  "firstName": "Massimo ",
+  "lastName": "Malivindi",
+  "physicalInformation": {
+    "sex": "MALE",
+    "birthday": "1978-10-05",
+    "height, cm": 180.0,
+    "weight, kg": 109.0,
+    "trainingBackground": "FREQUENT",
+    "restingHeartRate": 55,
+    "sleepGoal": "PT28800S",
+    "typicalDay": "MOSTLY_STANDING"
+  },
+  "linkedApplications": [
+    {
+      "name": "Strava",
+      "url": "https://www.strava.com",
+      "active": true,
+      "registered": "2025-07-08T05:48:15.000Z",
+      "lastLogin": "2025-07-08T05:48:15.000Z"
+    }
+  ],
+  "linkedOrganisations": [],
+  "settings": {
+    "firstDayOfWeek": "MONDAY",
+    "measurementUnit": "METRIC",
+    "dateFormat": "DAY_MONTH_YEAR",
+    "dateSeparator": "HYPHEN",
+    "timeFormat": "TIMEFORMAT_24",
+    "timeFormatSeparator": "COLON",
+    "timeZone": "UTC",
+    "language": "en",
+    "flowLanguage": "it"
+  }
+}
