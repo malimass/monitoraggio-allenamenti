@@ -21,17 +21,33 @@ if os.path.exists(data_dir):
                 with open(filepath, "r", encoding="utf-8") as f:
                     record = json.load(f)
                     if isinstance(record, dict):
-                        # Estrai i dati chiave
-                        data.append({
-                            "Data": datetime.fromtimestamp(record.get("start_time", 0)/1000).date() if record.get("start_time") else None,
-                            "Distanza (km)": round(record.get("distance", 0)/1000, 2),
-                            "Durata (h)": round(record.get("duration", 0)/3600, 2),
-                            "FC media": record.get("heart_rate", {}).get("average", None),
-                            "Calorie": record.get("calories", None),
-                            "Velocità media (km/h)": round((record.get("distance", 0)/1000) / (record.get("duration", 1)/3600), 2) if record.get("duration") else None
-                        })
+                        try:
+                            start_time_raw = record.get("start_time")
+                            distance_raw = record.get("distance", 0)
+                            duration_raw = record.get("duration", 0)
+                            calories_raw = record.get("calories", None)
+                            hr_raw = record.get("heart_rate", {}).get("average", None)
+
+                            start_time = (
+                                datetime.fromtimestamp(int(start_time_raw) / 1000).date()
+                                if start_time_raw else None
+                            )
+                            distanza_km = round(float(distance_raw) / 1000, 2) if distance_raw else 0
+                            durata_ore = round(float(duration_raw) / 3600, 2) if duration_raw else 0
+                            velocita = round(distanza_km / durata_ore, 2) if durata_ore else 0
+
+                            data.append({
+                                "Data": start_time,
+                                "Distanza (km)": distanza_km,
+                                "Durata (h)": durata_ore,
+                                "FC media": float(hr_raw) if hr_raw else None,
+                                "Calorie": float(calories_raw) if calories_raw else None,
+                                "Velocità media (km/h)": velocita
+                            })
+                        except Exception as e:
+                            st.warning(f"Errore nel file {file}: {e}")
             except Exception as e:
-                st.warning(f"Errore nel file {file}: {e}")
+                st.warning(f"Errore nell'apertura del file {file}: {e}")
 else:
     st.error(f"La cartella '{data_dir}' non esiste. Creala nel repository e inserisci i file JSON dentro.")
 
@@ -92,6 +108,3 @@ if data:
     st.pyplot(fig5)
 else:
     st.info("Nessun dato disponibile da visualizzare.")
-
-
-
