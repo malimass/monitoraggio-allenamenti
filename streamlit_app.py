@@ -5,6 +5,7 @@ import os
 import json
 from datetime import datetime
 import re
+import shutil
 
 st.set_page_config(page_title="Monitoraggio Allenamenti", layout="wide")
 
@@ -17,54 +18,65 @@ def parse_iso_duration(duration_str):
         return float(match.group(1))
     return 0
 
-# Caricamento file manuale
+# Caricamento file manuale o lettura da cartella 'dati'
 data = []
 st.sidebar.header("📁 Caricamento file JSON")
 uploaded_files = st.sidebar.file_uploader("Trascina qui i file JSON", type="json", accept_multiple_files=True)
+save_uploaded = st.sidebar.checkbox("💾 Salva i file caricati", value=False)
+selected_files = []
 
 if uploaded_files:
     st.sidebar.markdown("### ✅ Seleziona i file da includere")
-    selected_files = []
     for uploaded_file in uploaded_files:
         include = st.sidebar.checkbox(f"{uploaded_file.name}", value=True)
         if include:
             selected_files.append(uploaded_file)
 
-    for uploaded_file in selected_files:
-        try:
-            record = json.load(uploaded_file)
-            exercises = record.get("exercises", [])
-            for ex in exercises:
-                try:
-                    start_time = datetime.fromisoformat(ex["startTime"]).date()
-                    duration_raw = ex.get("duration", 0)
-                    distance_raw = ex.get("distance", 0)
-                    calories_raw = ex.get("kiloCalories")
-
-                    heart_data = ex.get("heartRate", {})
-                    hr_raw = heart_data.get("avg")
-
-                    # Durata
-                    if isinstance(duration_raw, str) and duration_raw.startswith("PT"):
-                        duration_raw = parse_iso_duration(duration_raw)
-                    durata_ore = round(duration_raw / 3600, 2) if duration_raw else 0
-                    distanza_km = round(distance_raw / 1000, 2)
-                    velocita = round(distanza_km / durata_ore, 2) if durata_ore else 0
-
-                    data.append({
-                        "Data": start_time,
-                        "Distanza (km)": distanza_km,
-                        "Durata (h)": durata_ore,
-                        "FC media": hr_raw,
-                        "Calorie": calories_raw,
-                        "Velocità media (km/h)": velocita
-                    })
-                except Exception as e:
-                    st.warning(f"Errore nei dati dell'esercizio: {e}")
-        except Exception as e:
-            st.warning(f"Errore nel file caricato {uploaded_file.name}: {e}")
+    if save_uploaded:
+        if not os.path.exists("dati"):
+            os.makedirs("dati")
+        for uploaded_file in selected_files:
+            with open(os.path.join("dati", uploaded_file.name), "wb") as f:
+                shutil.copyfileobj(uploaded_file, f)
+        st.sidebar.success("✅ File salvati nella cartella 'dati'")
 else:
-    st.info("Carica uno o più file JSON per iniziare l'analisi degli allenamenti.")
+    if os.path.exists("dati"):
+        for filename in os.listdir("dati"):
+            if filename.endswith(".json"):
+                selected_files.append(open(os.path.join("dati", filename), "r"))
+
+for uploaded_file in selected_files:
+    try:
+        record = json.load(uploaded_file)
+        exercises = record.get("exercises", [])
+        for ex in exercises:
+            try:
+                start_time = datetime.fromisoformat(ex["startTime"]).date()
+                duration_raw = ex.get("duration", 0)
+                distance_raw = ex.get("distance", 0)
+                calories_raw = ex.get("kiloCalories")
+
+                heart_data = ex.get("heartRate", {})
+                hr_raw = heart_data.get("avg")
+
+                if isinstance(duration_raw, str) and duration_raw.startswith("PT"):
+                    duration_raw = parse_iso_duration(duration_raw)
+                durata_ore = round(duration_raw / 3600, 2) if duration_raw else 0
+                distanza_km = round(distance_raw / 1000, 2)
+                velocita = round(distanza_km / durata_ore, 2) if durata_ore else 0
+
+                data.append({
+                    "Data": start_time,
+                    "Distanza (km)": distanza_km,
+                    "Durata (h)": durata_ore,
+                    "FC media": hr_raw,
+                    "Calorie": calories_raw,
+                    "Velocità media (km/h)": velocita
+                })
+            except Exception as e:
+                st.warning(f"Errore nei dati dell'esercizio: {e}")
+    except Exception as e:
+        st.warning(f"Errore nel file caricato {uploaded_file.name}: {e}")
 
 if data:
     df = pd.DataFrame(data)
@@ -136,4 +148,5 @@ if data:
         st.pyplot(fig)
 else:
     st.warning("Nessun dato disponibile da visualizzare. Carica almeno un file JSON valido.")
+
 
