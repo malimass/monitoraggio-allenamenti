@@ -47,10 +47,11 @@ if os.path.exists(data_dir):
                             else:
                                 duration_raw = 0
 
-                            start_time = (
-                                datetime.fromtimestamp(int(start_time_raw) / 1000).date()
-                                if start_time_raw else None
-                            )
+                            try:
+                                start_time = datetime.fromtimestamp(int(start_time_raw) / 1000).date() if start_time_raw else None
+                            except Exception:
+                                start_time = None
+
                             distanza_km = round(float(distance_raw) / 1000, 2) if distance_raw else 0
                             durata_ore = round(duration_raw / 3600, 2) if duration_raw else 0
                             velocita = round(distanza_km / durata_ore, 2) if durata_ore else 0
@@ -79,8 +80,8 @@ if data:
     st.sidebar.header("Filtra per data")
 
     if not df["Data"].isnull().all():
-        min_date = df["Data"].min().date()
-        max_date = df["Data"].max().date()
+        min_date = df["Data"].min()
+        max_date = df["Data"].max()
         try:
             date_range = st.sidebar.date_input("Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
 
@@ -134,5 +135,6 @@ if data:
     st.pyplot(fig5)
 else:
     st.info("Nessun dato disponibile da visualizzare.")
+
 
 
