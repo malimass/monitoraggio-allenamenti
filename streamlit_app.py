@@ -72,13 +72,17 @@ if data:
 
     # Selezione intervallo date
     st.sidebar.header("Filtra per data")
-    min_date = df["Data"].min()
-    max_date = df["Data"].max()
-    date_range = st.sidebar.date_input("Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-        df = df[(df["Data"] >= start_date) & (df["Data"] <= end_date)]
+    if not df["Data"].isnull().all():
+        min_date = df["Data"].min().date()
+        max_date = df["Data"].max().date()
+        date_range = st.sidebar.date_input("Intervallo date", [min_date, max_date], min_value=min_date, max_value=max_date)
+
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            df = df[(df["Data"] >= pd.to_datetime(start_date)) & (df["Data"] <= pd.to_datetime(end_date))]
+    else:
+        st.warning("Non ci sono date valide nei dati. Controlla i file JSON nella cartella 'dati'.")
 
     # Grafici
     st.subheader("Distanza Percorsa (km)")
@@ -122,4 +126,5 @@ if data:
     st.pyplot(fig5)
 else:
     st.info("Nessun dato disponibile da visualizzare.")
+
 
