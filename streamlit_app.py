@@ -58,13 +58,17 @@ metriche = st.multiselect(
 # Grafico a linee
 st.subheader("\U0001F4C8 Grafico delle metriche selezionate")
 fig, ax = plt.subplots()
+
 for metrica in metriche:
     ax.plot(df["Allenamento"], df[metrica], marker='o', label=metrica)
+    for i, val in enumerate(df[metrica]):
+        if val == max(df[metrica]):
+            ax.annotate(f"{val}", (df["Allenamento"][i], val), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='black')
+
 ax.set_xlabel("Allenamento")
 ax.set_ylabel("Valore")
 ax.set_title("Andamento Allenamenti")
 ax.legend()
 plt.xticks(rotation=45)
 st.pyplot(fig)
-
 
