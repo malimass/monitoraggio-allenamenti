@@ -14,7 +14,40 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report
 
-# [SEGUE IL CODICE DELL'APP COME PRIMA...]
+st.title("📊 Analisi Allenamenti con ML Predittivo")
+
+uploaded_file = st.file_uploader("Carica file JSON Polar", type="json")
+
+if uploaded_file is not None:
+    data = json.load(uploaded_file)
+    exercises = data.get("exercises", [])
+    rows = []
+
+    for ex in exercises:
+        durata = isodate.parse_duration(ex["duration"]).total_seconds() / 60
+        distanza = ex.get("distance", 0) / 1000
+        fc_media = ex["heartRate"]["avg"]
+        fc_max = ex["heartRate"]["max"]
+        vel_media = ex["speed"]["avg"] * 3.6
+        date = pd.to_datetime(ex["startTime"])
+        efficienza = vel_media / fc_media if fc_media > 0 else 0
+
+        rows.append({
+            "date": date,
+            "Durata (min)": durata,
+            "Distanza (km)": distanza,
+            "Frequenza Cardiaca Media": fc_media,
+            "Frequenza Cardiaca Massima": fc_max,
+            "Velocità Media (km/h)": vel_media,
+            "Efficienza": efficienza
+        })
+
+    df = pd.DataFrame(rows)
+
+    soglia_fc = 150
+    MODEL_PATH = "model/rf_model.pkl"
+    SCALER_PATH = "model/scaler.pkl"
+    features = df[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza"]]
 
 # Salva i dati in uno storico CSV per apprendimento continuo
 HISTORICAL_CSV = "data/historical_dataset.csv"
@@ -99,9 +132,5 @@ if not df.empty:
         st.info("ℹ️ Settimana equilibrata – mantieni monitoraggio frequente")
     else:
         st.success("✅ Settimana ben gestita – continua così!")
-
-
-
-
 
 
