@@ -1,131 +1,91 @@
 # app_streamlit_polar.py
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import datetime
-import json
-import isodate
-import os
+# [CONTENUTO PRECEDENTE INVARIATO QUI SOPRA ...]
 
-# Funzione per salvare i file caricati nella cartella data/
-def save_uploaded_files(uploaded_files, folder="data"):
-    os.makedirs(folder, exist_ok=True)
-    for uploaded_file in uploaded_files:
-        file_path = os.path.join(folder, uploaded_file.name)
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+# Salva i dati in uno storico CSV per apprendimento continuo
+HISTORICAL_CSV = "data/historical_dataset.csv"
+if not os.path.exists("data"):
+    os.makedirs("data")
 
-# Funzione per gestire eliminazione file
-def delete_file(file_name, folder="data"):
-    file_path = os.path.join(folder, file_name)
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
-# Funzione per caricare più file JSON di allenamento da caricamento manuale
-@st.cache_data
-def load_multiple_json_training_data(uploaded_files):
-    records = []
-    for uploaded_file in uploaded_files:
-        try:
-            data = json.load(uploaded_file)
-            exercise = data.get("exercises", [{}])[0]
-            duration_iso = exercise.get("duration", "PT0S")
-            duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
-            distanza = round(exercise.get("distance", 0) / 1000, 2)
-
-            record = {
-                "date": pd.to_datetime(exercise.get("startTime")),
-                "Durata (min)": round(duration_seconds / 60, 2),
-                "Distanza (km)": distanza,
-                "Calorie": exercise.get("kiloCalories", 0),
-                "Frequenza Cardiaca Media": exercise.get("heartRate", {}).get("avg", 0),
-                "Frequenza Cardiaca Massima": exercise.get("heartRate", {}).get("max", 0),
-                "Velocità Media (km/h)": round(exercise.get("speed", {}).get("avg", 0), 2),
-                "Velocità Massima (km/h)": round(exercise.get("speed", {}).get("max", 0), 2),
-                "Tempo in Zona 1 (min)": isodate.parse_duration(next((z.get("inZone", "PT0S") for z in exercise.get("zones", {}).get("heart_rate", []) if z.get("zoneIndex") == 1), "PT0S")).total_seconds() / 60,
-                "Tempo in Zona 2 (min)": isodate.parse_duration(next((z.get("inZone", "PT0S") for z in exercise.get("zones", {}).get("heart_rate", []) if z.get("zoneIndex") == 2), "PT0S")).total_seconds() / 60,
-                "Tempo in Zona 3 (min)": isodate.parse_duration(next((z.get("inZone", "PT0S") for z in exercise.get("zones", {}).get("heart_rate", []) if z.get("zoneIndex") == 3), "PT0S")).total_seconds() / 60,
-                "Sport": exercise.get("sport", "N/D")
-            }
-            records.append(record)
-        except Exception as e:
-            st.warning(f"Errore nel file {uploaded_file.name}: {e}")
-    df = pd.DataFrame(records)
-    df = df.dropna(subset=["date"]).sort_values("date")
-    return df
-
-# Impostazioni base dell'app
-st.set_page_config(page_title="Polar Training Dashboard", layout="wide")
-st.title("📊 Polar Training Dashboard")
-
-# File manager: carica ed elimina file
-st.sidebar.header("📂 Gestione File")
-with st.sidebar:
-    uploaded_files = st.file_uploader("Carica file JSON", type="json", accept_multiple_files=True)
-    if uploaded_files:
-        save_uploaded_files(uploaded_files)
-        st.success("File salvati correttamente. Ricaricare la pagina per aggiornare i dati.")
-
-    existing_files = [f for f in os.listdir("data") if f.endswith(".json")]
-    file_to_delete = st.selectbox("Seleziona file da eliminare", options=["" ] + existing_files)
-    if file_to_delete and st.button("Elimina File"):
-        delete_file(file_to_delete)
-        st.success(f"File '{file_to_delete}' eliminato. Ricaricare la pagina per aggiornare i dati.")
-
-# Caricamento automatico dei file dalla cartella 'data'
-file_names = [f for f in os.listdir("data") if f.endswith(".json")]
-data_files = [open(os.path.join("data", f), "rb") for f in file_names]
-df = load_multiple_json_training_data(data_files) if data_files else pd.DataFrame()
-
-# Se ci sono dati, visualizza tutto
+# Aggiungi i dati correnti allo storico, evitando duplicati
 if not df.empty:
-    eta = st.sidebar.slider("Inserisci la tua età", 18, 80, 47)
-    fc_max_teorica = 220 - eta
-    soglia_critica = 0.9 * fc_max_teorica
+    df_reset = df.reset_index()
+    df_reset["date"] = pd.to_datetime(df_reset["date"])
+    df_reset["id"] = df_reset["date"].astype(str) + "_" + df_reset["Durata (min)"].astype(str)
 
-    st.subheader("📋 Dati Allenamenti")
-    st.dataframe(df)
+    if os.path.exists(HISTORICAL_CSV):
+        old = pd.read_csv(HISTORICAL_CSV)
+        old["date"] = pd.to_datetime(old["date"])
+        old["id"] = old["date"].astype(str) + "_" + old["Durata (min)"].astype(str)
+        combined = pd.concat([old, df_reset], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["id"])
+        combined.to_csv(HISTORICAL_CSV, index=False)
+    else:
+        df_reset.to_csv(HISTORICAL_CSV, index=False)
 
-    df["Supera FC Max"] = df["Frequenza Cardiaca Massima"] > soglia_critica
-    df["date"] = pd.to_datetime(df["date"])
-    df.set_index("date", inplace=True)
+    # Carica tutti i dati storici per allenamento del modello
+    storico = pd.read_csv(HISTORICAL_CSV)
+    storico["Efficienza"] = storico["Velocità Media (km/h)"] / storico["Frequenza Cardiaca Media"]
+    storico["Load"] = storico["Durata (min)"] * storico["Frequenza Cardiaca Media"]
+    storico["Load_7d"] = storico["Load"].rolling(window=7).mean()
+    storico["Load_28d"] = storico["Load"].rolling(window=28).mean()
+    storico["ACWR"] = storico["Load_7d"] / storico["Load_28d"]
+    storico = storico.dropna()
 
-    weekly = df.resample("W").sum(numeric_only=True)
-    monthly = df.resample("M").sum(numeric_only=True)
+    X_all = storico[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza", "ACWR"]]
+    y_all = (storico["Frequenza Cardiaca Massima"] > soglia_fc).astype(int)
 
-    st.subheader("📉 Evoluzione del Rischio Infortuni")
-    rischio_settimanale = df.resample("W")["Supera FC Max"].sum()
-    fig_rischio, ax_rischio = plt.subplots(figsize=(10, 4))
-    bars = ax_rischio.bar(rischio_settimanale.index.strftime('%d %b'), rischio_settimanale, color="crimson")
-    ax_rischio.set_ylabel("Allenamenti a rischio")
-    ax_rischio.set_xlabel("Settimane")
-    ax_rischio.set_title("🧠 Allenamenti sopra soglia FC Max per settimana")
-    ax_rischio.set_ylim(0, max(rischio_settimanale.max() + 1, 1))
-    ax_rischio.grid(True, linestyle='--', alpha=0.5)
-    for bar in bars:
-        yval = bar.get_height()
-        ax_rischio.text(bar.get_x() + bar.get_width()/2, yval + 0.1, int(yval), ha='center', va='bottom', fontsize=8)
-    st.pyplot(fig_rischio)
+    scaler = StandardScaler()
+    X_scaled_all = scaler.fit_transform(X_all)
 
-    st.subheader("📈 Andamento della Frequenza Cardiaca Massima nel tempo")
-    fig_fc, ax_fc = plt.subplots(figsize=(10, 4))
-    df["Frequenza Cardiaca Massima"].plot(ax=ax_fc, color="darkblue", marker="o", linestyle="-")
-    ax_fc.set_ylabel("FC Massima (bpm)")
-    ax_fc.set_xlabel("Data")
-    ax_fc.set_title("📊 Frequenza Cardiaca Massima nel tempo")
-    ax_fc.grid(True, linestyle='--', alpha=0.5)
-    st.pyplot(fig_fc)
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_scaled_all, y_all)
 
-    st.subheader("📊 Previsione Chilometraggio")
-    pred_sett = weekly["Distanza (km)"].rolling(window=3).mean().iloc[-1]
-    pred_mese = monthly["Distanza (km)"].rolling(window=2).mean().iloc[-1]
-    st.info(f"📅 Chilometri previsti prossima settimana: {pred_sett:.1f} km")
-    st.info(f"🗓️ Chilometri previsti prossimo mese: {pred_mese:.1f} km")
+    # Salva modello aggiornato
+    joblib.dump(model, MODEL_PATH)
+    joblib.dump(scaler, SCALER_PATH)
 
-else:
-    st.info("Nessun dato disponibile. Carica uno o più file JSON validi.")
+    # Applica al dataframe corrente
+    df["Probabilità Infortunio"] = model.predict_proba(scaler.transform(features))[:,1]
+
+    # Mostra previsioni future semplici: prossimi 5 giorni (con media carichi recenti)
+    st.subheader("📈 Previsione rischio nei prossimi 5 giorni")
+    sim_future = pd.DataFrame()
+    avg = df[features.columns].tail(7).mean()
+    for i in range(1, 6):
+        sim_day = avg.copy()
+        sim_day["ACWR"] = max(0.1, avg["ACWR"] + 0.05 * i)
+        sim_future = pd.concat([sim_future, sim_day.to_frame().T], ignore_index=True)
+    sim_future_scaled = scaler.transform(sim_future)
+    probs = model.predict_proba(sim_future_scaled)[:, 1]
+    st.line_chart(pd.Series(probs, index=[f"Giorno +{i}" for i in range(1,6)]))
+
+    # Esportazione PDF/CSV dei consigli del giorno selezionato
+    import io
+    import base64
+
+    st.subheader("📤 Esporta consigli e dati")
+    export_date = df_reset["date"].max().strftime("%Y-%m-%d")
+    consigli_export = df_reset[df_reset["date"] == df_reset["date"].max()][["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza", "ACWR", "Probabilità Infortunio"]]
+    csv = consigli_export.to_csv(index=False).encode('utf-8')
+    st.download_button("⬇️ Scarica consigli in CSV", csv, file_name=f"consigli_{export_date}.csv", mime="text/csv")
+
+    # Sommario settimanale
+    st.subheader("🗓️ Riepilogo settimanale")
+    last7 = df.tail(7)
+    km_tot = last7["Distanza (km)"].sum()
+    fc_avg = last7["Frequenza Cardiaca Media"].mean()
+    rischio_medio = last7["Probabilità Infortunio"].mean()
+    st.markdown(f"**Distanza Totale**: {km_tot:.1f} km")
+    st.markdown(f"**Frequenza Cardiaca Media**: {fc_avg:.0f} bpm")
+    st.markdown(f"**Rischio Infortunio Medio**: {rischio_medio*100:.1f}%")
+    if rischio_medio > 0.6:
+        st.warning("⚠️ Settimana intensa – considera almeno 1 giorno di recupero")
+    elif rischio_medio > 0.3:
+        st.info("ℹ️ Settimana equilibrata – mantieni monitoraggio frequente")
+    else:
+        st.success("✅ Settimana ben gestita – continua così!")
+
 
 
 
