@@ -1,74 +1,159 @@
+# app_streamlit_polar.py
+
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import datetime
+import json
+import isodate
+import os
 
-# Dati degli allenamenti
-data = {
-    "Allenamento": [
-        "1 (6 lug)", "2", "3", "4", "5", "6", "7", "8", 
-        "9 (extra 20 lug)", "10", "11", "12", "13", "14"
-    ],
-    "Distanza (km)": [
-        18.79, 7.18, 8.41, 20.04, 20.04, 18.39, 12.34, 22.69,
-        22.69, 7.54, 16.37, 9.41, 0, 0
-    ],
-    "Durata (min)": [
-        180, 82, 82, 251, 251, 204, 127, 257,
-        257, 80, 188, 77, 0, 0
-    ],
-    "FC Media": [
-        112, 112, 118, 112, 112, 90, 103, 112,
-        112, 110, 91, 125, 0, 0
-    ],
-    "FC Max": [
-        155, 126, 146, 159, 159, 124, 115, 159,
-        159, 138, 99, 162, 0, 0
-    ],
-    "Vel Media (km/h)": [
-        6.2, 5.2, 6.1, 4.7, 4.7, 5.4, 5.8, 4.6,
-        4.6, 5.6, 5.2, 7.3, 0, 0
-    ],
-    "Vel Max (km/h)": [
-        19.0, 7.5, 9.9, 12.5, 12.5, 12.7, 8.9, 12.5,
-        12.5, 9.3, 11.8, 11.1, 0, 0
-    ],
-    "Calorie": [
-        1686, 750, 814, 2320, 2320, 1552, 1016, 2320,
-        2320, 722, 1377, 823, 0, 0
-    ],
-    "Dislivello (m)": [
-        470, 215, 255, 300, 300, 385, 165, 536,
-        536, 180, 255, 340, 0, 0
-    ]
-}
+# Funzione per salvare i file caricati nella cartella data/
+def save_uploaded_files(uploaded_files, folder="data"):
+    os.makedirs(folder, exist_ok=True)
+    for uploaded_file in uploaded_files:
+        file_path = os.path.join(folder, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-# DataFrame
-df = pd.DataFrame(data)
+# Funzione per caricare più file JSON di allenamento da caricamento manuale
+@st.cache_data
+def load_multiple_json_training_data(uploaded_files):
+    records = []
+    for uploaded_file in uploaded_files:
+        try:
+            data = json.load(uploaded_file)
+            exercise = data.get("exercises", [{}])[0]
+            duration_iso = exercise.get("duration", "PT0S")
+            duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
 
-# Titolo app
-st.title("\U0001F4CA Analisi Allenamenti (da 6 a 23 luglio 2025)")
+            record = {
+                "date": pd.to_datetime(exercise.get("startTime")),
+                "Durata": duration_seconds / 60,
+                "Distanza (km)": exercise.get("distance", 0) / 1000,
+                "Calorie": exercise.get("kiloCalories", 0),
+                "Frequenza Cardiaca Media": exercise.get("heartRate", {}).get("avg", 0),
+                "Frequenza Cardiaca Massima": exercise.get("heartRate", {}).get("max", 0),
+                "Sport": exercise.get("sport", "N/D")
+            }
+            records.append(record)
+        except Exception as e:
+            st.warning(f"Errore nel file {uploaded_file.name}: {e}")
+    df = pd.DataFrame(records)
+    df = df.dropna(subset=["date"]).sort_values("date")
+    return df
 
-# Selezione metriche
-metriche = st.multiselect(
-    "Seleziona le metriche da confrontare:",
-    df.columns[1:],
-    default=["Distanza (km)", "Durata (min)", "Calorie"]
-)
+# Funzione per caricare file JSON da cartella predefinita (per il coach)
+@st.cache_data
+def load_json_from_folder(folder_path="data"):
+    records = []
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".json"):
+            try:
+                with open(os.path.join(folder_path, filename)) as f:
+                    data = json.load(f)
+                    exercise = data.get("exercises", [{}])[0]
+                    duration_iso = exercise.get("duration", "PT0S")
+                    duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
 
-# Grafico a linee
-st.subheader("\U0001F4C8 Grafico delle metriche selezionate")
-fig, ax = plt.subplots()
+                    record = {
+                        "date": pd.to_datetime(exercise.get("startTime")),
+                        "Durata": duration_seconds / 60,
+                        "Distanza (km)": exercise.get("distance", 0) / 1000,
+                        "Calorie": exercise.get("kiloCalories", 0),
+                        "Frequenza Cardiaca Media": exercise.get("heartRate", {}).get("avg", 0),
+                        "Frequenza Cardiaca Massima": exercise.get("heartRate", {}).get("max", 0),
+                        "Sport": exercise.get("sport", "N/D")
+                    }
+                    records.append(record)
+            except Exception as e:
+                st.warning(f"Errore nel file {filename}: {e}")
+    df = pd.DataFrame(records)
+    df = df.dropna(subset=["date"]).sort_values("date")
+    return df
 
-for metrica in metriche:
-    ax.plot(df["Allenamento"], df[metrica], marker='o', label=metrica)
-    for i, val in enumerate(df[metrica]):
-        if val == max(df[metrica]):
-            ax.annotate(f"{val}", (df["Allenamento"][i], val), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='black')
+# Calcolo carico (robusto)
+def compute_training_load(row):
+    if row["Durata"] > 0 and row["Frequenza Cardiaca Media"] > 0:
+        return row["Durata"] * (row["Frequenza Cardiaca Media"] / 100)
+    return 0
 
-ax.set_xlabel("Allenamento")
-ax.set_ylabel("Valore")
-ax.set_title("Andamento Allenamenti")
-ax.legend()
-plt.xticks(rotation=45)
-st.pyplot(fig)
+# Analisi predittiva semplificata
+
+def performance_analysis(df):
+    df["training_load"] = df.apply(compute_training_load, axis=1)
+    df["FC Relativa (% max)"] = 100 * df["Frequenza Cardiaca Media"] / df["Frequenza Cardiaca Massima"].replace(0, np.nan)
+    df["Efficienza cardiaca (km/bpm)"] = df["Distanza (km)"] / df["Frequenza Cardiaca Media"].replace(0, np.nan)
+    df.set_index("date", inplace=True)
+    df_daily = df.resample("D").sum()
+    df_weekly = df.resample("W-MON").sum()
+    daily_loads = df_daily["training_load"]
+    short_term = daily_loads.rolling(window=3, min_periods=1).mean()
+    long_term = daily_loads.rolling(window=7, min_periods=1).mean()
+    acwr = short_term / long_term
+    return df, df_daily, df_weekly, daily_loads, acwr
+
+# UI Streamlit
+st.title("Polar Flow Analyzer – Preparatore Virtuale")
+
+# Caricamento automatico sempre dalla cartella data/
+df = load_json_from_folder("data")
+st.success("I dati vengono caricati dalla cartella condivisa `/data`")
+
+# Se si caricano file, vengono salvati e usati al volo
+uploaded_files = st.sidebar.file_uploader("Carica uno o più file JSON da Polar Flow", type="json", accept_multiple_files=True)
+if uploaded_files:
+    save_uploaded_files(uploaded_files, "data")
+    df = load_multiple_json_training_data(uploaded_files)
+
+if not df.empty:
+    st.subheader("📋 Dati Allenamento Estratti")
+st.markdown("""
+**Colonne principali:**
+- **Durata**: in minuti
+- **Distanza (km)**: distanza totale della sessione
+- **FC Media / Massima**: valori della frequenza cardiaca (in bpm)
+- **Calorie**: stima delle kcal bruciate
+- **Sport**: attività eseguita (es. running, cycling)
+""")
+    st.dataframe(df)
+
+    # Calcolo training load e analisi
+    df_raw, df_daily, df_weekly, daily_loads, acwr = performance_analysis(df)
+
+    st.subheader("📊 Analisi Predittiva – Coach Virtuale")
+st.markdown("""
+**Legenda grafici:**
+- **Carico Giornaliero**: indica quanto stress fisiologico hai accumulato in un singolo giorno (minuti x FC media).
+- **ACWR (Acute:Chronic Workload Ratio)**: rapporto tra carico acuto (3 giorni) e cronico (7 giorni). Valori ideali: **0.8–1.3**. Oltre 1.5 = rischio infortuni.
+""")
+    st.line_chart(daily_loads.rename("Carico Giornaliero"))
+    st.line_chart(acwr.rename("ACWR (Carico Acuto / Cronico)"))
+
+    # Feedback automatico
+    latest_acwr = acwr.iloc[-1] if not acwr.empty else 0
+    if latest_acwr > 1.5:
+        st.error(f"⚠️ Rischio infortunio alto: ACWR = {latest_acwr:.2f}. Stai caricando troppo rispetto alla tua media settimanale.")
+    elif latest_acwr < 0.8:
+        st.info(f"ℹ️ Carico basso: ACWR = {latest_acwr:.2f}. Potresti perdere forma fisica.")
+    elif latest_acwr >= 0.8 and latest_acwr <= 1.3:
+        st.success(f"✅ Carico ottimale: ACWR = {latest_acwr:.2f}. Continua così!")
+    else:
+        st.warning(f"⚠️ ACWR = {latest_acwr:.2f}. Attenzione: possibile instabilità nel carico.")
+
+    # Analisi settimanale
+    st.subheader("📅 Carico Settimanale")
+st.markdown("""
+**Training Load Settimanale:**
+Mostra il carico totale per ogni settimana (lunedì–domenica). Utile per verificare sovraccarichi o settimane troppo leggere.
+""")
+    st.bar_chart(df_weekly["training_load"].rename("Training Load Settimanale"))
+
+    # Esportazione dati
+    st.download_button("📥 Scarica dati allenamento in CSV", df.to_csv().encode(), file_name="report_allenamento.csv")
+
+else:
+    st.info("Carica file JSON o usa la modalità ?coach_mode=true per lettura automatica da cartella.")
+
 
