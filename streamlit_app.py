@@ -17,6 +17,12 @@ def save_uploaded_files(uploaded_files, folder="data"):
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
+# Funzione per gestire eliminazione file
+def delete_file(file_name, folder="data"):
+    file_path = os.path.join(folder, file_name)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
 # Funzione per caricare più file JSON di allenamento da caricamento manuale
 @st.cache_data
 def load_multiple_json_training_data(uploaded_files):
@@ -28,13 +34,20 @@ def load_multiple_json_training_data(uploaded_files):
             duration_iso = exercise.get("duration", "PT0S")
             duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
 
+            distanza = round(exercise.get("distance", 0) / 1000, 2)
+
             record = {
                 "date": pd.to_datetime(exercise.get("startTime")),
-                "Durata": duration_seconds / 60,
-                "Distanza (km)": exercise.get("distance", 0) / 1000,
+                "Durata (min)": round(duration_seconds / 60, 2),
+                "Distanza (km)": distanza,
                 "Calorie": exercise.get("kiloCalories", 0),
                 "Frequenza Cardiaca Media": exercise.get("heartRate", {}).get("avg", 0),
                 "Frequenza Cardiaca Massima": exercise.get("heartRate", {}).get("max", 0),
+                "Velocità Media (km/h)": round(exercise.get("speed", {}).get("avg", 0), 2),
+                "Velocità Massima (km/h)": round(exercise.get("speed", {}).get("max", 0), 2),
+                "Tempo in Zona 1 (min)": isodate.parse_duration(next((z.get("inZone", "PT0S") for z in exercise.get("zones", {}).get("heart_rate", []) if z.get("zoneIndex") == 1), "PT0S")).total_seconds() / 60,
+                "Tempo in Zona 2 (min)": isodate.parse_duration(next((z.get("inZone", "PT0S") for z in exercise.get("zones", {}).get("heart_rate", []) if z.get("zoneIndex") == 2), "PT0S")).total_seconds() / 60,
+                "Tempo in Zona 3 (min)": isodate.parse_duration(next((z.get("inZone", "PT0S") for z in exercise.get("zones", {}).get("heart_rate", []) if z.get("zoneIndex") == 3), "PT0S")).total_seconds() / 60,
                 "Sport": exercise.get("sport", "N/D")
             }
             records.append(record)
@@ -44,116 +57,65 @@ def load_multiple_json_training_data(uploaded_files):
     df = df.dropna(subset=["date"]).sort_values("date")
     return df
 
-# Funzione per caricare file JSON da cartella predefinita (per il coach)
-@st.cache_data
-def load_json_from_folder(folder_path="data"):
-    records = []
-    for filename in os.listdir(folder_path):
-        if filename.endswith(".json"):
-            try:
-                with open(os.path.join(folder_path, filename)) as f:
-                    data = json.load(f)
-                    exercise = data.get("exercises", [{}])[0]
-                    duration_iso = exercise.get("duration", "PT0S")
-                    duration_seconds = isodate.parse_duration(duration_iso).total_seconds()
+# Impostazioni base dell'app
+st.set_page_config(page_title="Polar Training Dashboard", layout="wide")
+st.title("📊 Polar Training Dashboard")
 
-                    record = {
-                        "date": pd.to_datetime(exercise.get("startTime")),
-                        "Durata": duration_seconds / 60,
-                        "Distanza (km)": exercise.get("distance", 0) / 1000,
-                        "Calorie": exercise.get("kiloCalories", 0),
-                        "Frequenza Cardiaca Media": exercise.get("heartRate", {}).get("avg", 0),
-                        "Frequenza Cardiaca Massima": exercise.get("heartRate", {}).get("max", 0),
-                        "Sport": exercise.get("sport", "N/D")
-                    }
-                    records.append(record)
-            except Exception as e:
-                st.warning(f"Errore nel file {filename}: {e}")
-    df = pd.DataFrame(records)
-    df = df.dropna(subset=["date"]).sort_values("date")
-    return df
+# File manager: carica ed elimina file
+st.sidebar.header("📂 Gestione File")
+with st.sidebar:
+    uploaded_files = st.file_uploader("Carica file JSON", type="json", accept_multiple_files=True)
+    if uploaded_files:
+        save_uploaded_files(uploaded_files)
+        st.success("File salvati correttamente. Ricaricare la pagina per aggiornare i dati.")
 
-# Calcolo carico (robusto)
-def compute_training_load(row):
-    if row["Durata"] > 0 and row["Frequenza Cardiaca Media"] > 0:
-        return row["Durata"] * (row["Frequenza Cardiaca Media"] / 100)
-    return 0
+    existing_files = [f for f in os.listdir("data") if f.endswith(".json")]
+    file_to_delete = st.selectbox("Seleziona file da eliminare", options=["" ] + existing_files)
+    if file_to_delete and st.button("Elimina File"):
+        delete_file(file_to_delete)
+        st.success(f"File '{file_to_delete}' eliminato. Ricaricare la pagina per aggiornare i dati.")
 
-# Analisi predittiva semplificata
+# Caricamento automatico dei file dalla cartella 'data'
+file_names = [f for f in os.listdir("data") if f.endswith(".json")]
+data_files = [open(os.path.join("data", f), "rb") for f in file_names]
+df = load_multiple_json_training_data(data_files) if data_files else pd.DataFrame()
 
-def performance_analysis(df):
-    df["training_load"] = df.apply(compute_training_load, axis=1)
-    df["FC Relativa (% max)"] = 100 * df["Frequenza Cardiaca Media"] / df["Frequenza Cardiaca Massima"].replace(0, np.nan)
-    df["Efficienza cardiaca (km/bpm)"] = df["Distanza (km)"] / df["Frequenza Cardiaca Media"].replace(0, np.nan)
-    df.set_index("date", inplace=True)
-    df_daily = df.resample("D").sum()
-    df_weekly = df.resample("W-MON").sum()
-    daily_loads = df_daily["training_load"]
-    short_term = daily_loads.rolling(window=3, min_periods=1).mean()
-    long_term = daily_loads.rolling(window=7, min_periods=1).mean()
-    acwr = short_term / long_term
-    return df, df_daily, df_weekly, daily_loads, acwr
-
-# UI Streamlit
-st.title("Polar Flow Analyzer – Preparatore Virtuale")
-
-# Caricamento automatico sempre dalla cartella data/
-df = load_json_from_folder("data")
-st.success("I dati vengono caricati dalla cartella condivisa `/data`")
-
-# Se si caricano file, vengono salvati e usati al volo
-uploaded_files = st.sidebar.file_uploader("Carica uno o più file JSON da Polar Flow", type="json", accept_multiple_files=True)
-if uploaded_files:
-    save_uploaded_files(uploaded_files, "data")
-    df = load_multiple_json_training_data(uploaded_files)
-
+# Se ci sono dati, calcola soglia FC max e crea grafici
 if not df.empty:
-    st.subheader("📋 Dati Allenamento Estratti")
-st.markdown("""
-**Colonne principali:**
-- **Durata**: in minuti
-- **Distanza (km)**: distanza totale della sessione
-- **FC Media / Massima**: valori della frequenza cardiaca (in bpm)
-- **Calorie**: stima delle kcal bruciate
-- **Sport**: attività eseguita (es. running, cycling)
-""")
-    st.dataframe(df)
+    eta = st.sidebar.slider("Inserisci la tua età", 18, 80, 47)
+    fc_max_teorica = 220 - eta
+    soglia_critica = 0.9 * fc_max_teorica
 
-    # Calcolo training load e analisi
-    df_raw, df_daily, df_weekly, daily_loads, acwr = performance_analysis(df)
+    st.subheader("📉 Evoluzione del Rischio Infortuni")
+    df["Supera FC Max"] = df["Frequenza Cardiaca Massima"] > soglia_critica
+    df.set_index("date", inplace=True)
+    df.index = pd.to_datetime(df.index)
 
-    st.subheader("📊 Analisi Predittiva – Coach Virtuale")
-st.markdown("""
-**Legenda grafici:**
-- **Carico Giornaliero**: indica quanto stress fisiologico hai accumulato in un singolo giorno (minuti x FC media).
-- **ACWR (Acute:Chronic Workload Ratio)**: rapporto tra carico acuto (3 giorni) e cronico (7 giorni). Valori ideali: **0.8–1.3**. Oltre 1.5 = rischio infortuni.
-""")
-    st.line_chart(daily_loads.rename("Carico Giornaliero"))
-    st.line_chart(acwr.rename("ACWR (Carico Acuto / Cronico)"))
+    if pd.api.types.is_datetime64_any_dtype(df.index):
+        rischio_settimanale = df["Supera FC Max"].resample("W").sum()
+        fig_rischio, ax_rischio = plt.subplots(figsize=(10, 4))
+        bars = ax_rischio.bar(rischio_settimanale.index.strftime('%d %b'), rischio_settimanale, color="crimson")
+        ax_rischio.set_ylabel("Allenamenti a rischio")
+        ax_rischio.set_xlabel("Settimane")
+        ax_rischio.set_title("🧠 Allenamenti sopra soglia FC Max per settimana")
+        ax_rischio.set_ylim(0, max(rischio_settimanale.max() + 1, 1))
+        ax_rischio.grid(True, linestyle='--', alpha=0.5)
+        for bar in bars:
+            yval = bar.get_height()
+            ax_rischio.text(bar.get_x() + bar.get_width()/2, yval + 0.1, int(yval), ha='center', va='bottom', fontsize=8)
+        st.pyplot(fig_rischio)
 
-    # Feedback automatico
-    latest_acwr = acwr.iloc[-1] if not acwr.empty else 0
-    if latest_acwr > 1.5:
-        st.error(f"⚠️ Rischio infortunio alto: ACWR = {latest_acwr:.2f}. Stai caricando troppo rispetto alla tua media settimanale.")
-    elif latest_acwr < 0.8:
-        st.info(f"ℹ️ Carico basso: ACWR = {latest_acwr:.2f}. Potresti perdere forma fisica.")
-    elif latest_acwr >= 0.8 and latest_acwr <= 1.3:
-        st.success(f"✅ Carico ottimale: ACWR = {latest_acwr:.2f}. Continua così!")
-    else:
-        st.warning(f"⚠️ ACWR = {latest_acwr:.2f}. Attenzione: possibile instabilità nel carico.")
-
-    # Analisi settimanale
-    st.subheader("📅 Carico Settimanale")
-st.markdown("""
-**Training Load Settimanale:**
-Mostra il carico totale per ogni settimana (lunedì–domenica). Utile per verificare sovraccarichi o settimane troppo leggere.
-""")
-    st.bar_chart(df_weekly["training_load"].rename("Training Load Settimanale"))
-
-    # Esportazione dati
-    st.download_button("📥 Scarica dati allenamento in CSV", df.to_csv().encode(), file_name="report_allenamento.csv")
+    st.subheader("📈 Andamento della Frequenza Cardiaca Massima nel tempo")
+    fig_fc, ax_fc = plt.subplots(figsize=(10, 4))
+    df["Frequenza Cardiaca Massima"].plot(ax=ax_fc, color="darkblue", marker="o", linestyle="-")
+    ax_fc.set_ylabel("FC Massima (bpm)")
+    ax_fc.set_xlabel("Data")
+    ax_fc.set_title("📊 Frequenza Cardiaca Massima nel tempo")
+    ax_fc.grid(True, linestyle='--', alpha=0.5)
+    st.pyplot(fig_fc)
 
 else:
-    st.info("Carica file JSON o usa la modalità ?coach_mode=true per lettura automatica da cartella.")
+    st.info("Nessun dato disponibile. Carica uno o più file JSON validi.")
+
 
 
