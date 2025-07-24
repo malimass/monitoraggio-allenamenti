@@ -1,6 +1,20 @@
 # app_streamlit_polar.py
 
-# [CONTENUTO PRECEDENTE INVARIATO QUI SOPRA ...]
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import datetime
+import json
+import isodate
+import os
+import joblib
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report
+
+# [SEGUE IL CODICE DELL'APP COME PRIMA...]
 
 # Salva i dati in uno storico CSV per apprendimento continuo
 HISTORICAL_CSV = "data/historical_dataset.csv"
@@ -85,6 +99,7 @@ if not df.empty:
         st.info("ℹ️ Settimana equilibrata – mantieni monitoraggio frequente")
     else:
         st.success("✅ Settimana ben gestita – continua così!")
+
 
 
 
