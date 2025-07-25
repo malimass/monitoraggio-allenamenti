@@ -1,11 +1,10 @@
-# app_streamlit_polar.py
+# app_coach_ai.py
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import datetime
-import json
 import isodate
 import os
 import joblib
@@ -14,111 +13,103 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report
 
-st.title("📊 Analisi Allenamenti con ML Predittivo")
+# ------------------ Autenticazione Utente ------------------
+def login_form():
+    st.sidebar.title("🔐 Login Utente")
+    username = st.sidebar.text_input("Nome utente")
+    password = st.sidebar.text_input("Password", type="password")
+    login = st.sidebar.button("Login")
 
-uploaded_file = st.file_uploader("Carica file JSON Polar", type="json")
+    if login:
+        if username and password:
+            st.session_state.user_id = username
+            st.sidebar.success(f"Benvenuto, {username}!")
+            return True
+        else:
+            st.sidebar.error("Inserisci nome utente e password")
+            return False
 
-if uploaded_file is not None:
-    data = json.load(uploaded_file)
-    exercises = data.get("exercises", [])
-    rows = []
+    if "user_id" in st.session_state:
+        st.sidebar.success(f"Autenticato come {st.session_state.user_id}")
+        return True
 
-    for ex in exercises:
-        durata = isodate.parse_duration(ex["duration"]).total_seconds() / 60
-        distanza = ex.get("distance", 0) / 1000
-        fc_media = ex["heartRate"]["avg"]
-        fc_max = ex["heartRate"]["max"]
-        vel_media = ex["speed"]["avg"] * 3.6
-        date = pd.to_datetime(ex["startTime"])
-        efficienza = vel_media / fc_media if fc_media > 0 else 0
+    return False
 
-        rows.append({
-            "date": date,
+# ------------------ Inserimento Manuale Dati ------------------
+def inserisci_dati_manuali():
+    st.subheader("📝 Inserisci i tuoi dati di allenamento")
+    with st.form("dati_allenamento"):
+        data = st.date_input("Data dell'allenamento", value=datetime.date.today())
+        peso = st.number_input("Peso corporeo (kg)", min_value=30.0, max_value=200.0, step=0.1)
+        durata = st.number_input("Durata (min)", min_value=1.0)
+        distanza = st.number_input("Distanza (km)", min_value=0.0)
+        fc_media = st.number_input("Frequenza Cardiaca Media (bpm)", min_value=30, max_value=220)
+        fc_max = st.number_input("Frequenza Cardiaca Massima (bpm)", min_value=30, max_value=240)
+        vel_media = st.number_input("Velocità Media (km/h)", min_value=1.0, max_value=30.0)
+        calorie = st.number_input("Calorie bruciate", min_value=0)
+
+        inviato = st.form_submit_button("Aggiungi allenamento")
+
+    if inviato:
+        if not all([durata, distanza, fc_media, fc_max, vel_media, calorie]):
+            st.error("❌ Tutti i campi sono obbligatori.")
+            return None
+
+        riga = {
+            "Utente": st.session_state.get("user_id", "ospite"),
+            "date": pd.to_datetime(data),
+            "Peso": peso,
             "Durata (min)": durata,
             "Distanza (km)": distanza,
             "Frequenza Cardiaca Media": fc_media,
             "Frequenza Cardiaca Massima": fc_max,
             "Velocità Media (km/h)": vel_media,
-            "Efficienza": efficienza
-        })
+            "Calorie": calorie,
+            "Efficienza": vel_media / fc_media if fc_media > 0 else 0
+        }
 
-    df = pd.DataFrame(rows)
+        return pd.DataFrame([riga])
+    return None
 
-    soglia_fc = 150
-    MODEL_PATH = "model/rf_model.pkl"
-    SCALER_PATH = "model/scaler.pkl"
-    features = df[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza"]]
+# ------------------ Training ML & Analisi ------------------
+def add_to_storico(df, file_csv="storico.csv"):
+    if os.path.exists(file_csv):
+        storico = pd.read_csv(file_csv, parse_dates=["date"])
+        df = pd.concat([storico, df], ignore_index=True)
+        df.drop_duplicates(subset=["Utente", "date", "Durata (min)"], inplace=True)
+    df.to_csv(file_csv, index=False)
+    return df
 
-# Salva i dati in uno storico CSV per apprendimento continuo
-HISTORICAL_CSV = "data/historical_dataset.csv"
-if not os.path.exists("data"):
-    os.makedirs("data")
-
-# Aggiungi i dati correnti allo storico, evitando duplicati
-if not df.empty:
-    df_reset = df.reset_index()
-    df_reset["date"] = pd.to_datetime(df_reset["date"])
-    df_reset["id"] = df_reset["date"].astype(str) + "_" + df_reset["Durata (min)"].astype(str)
-
-    if os.path.exists(HISTORICAL_CSV):
-        old = pd.read_csv(HISTORICAL_CSV)
-        old["date"] = pd.to_datetime(old["date"])
-        old["id"] = old["date"].astype(str) + "_" + old["Durata (min)"].astype(str)
-        combined = pd.concat([old, df_reset], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["id"])
-        combined.to_csv(HISTORICAL_CSV, index=False)
-    else:
-        df_reset.to_csv(HISTORICAL_CSV, index=False)
-
-    # Carica tutti i dati storici per allenamento del modello
-    storico = pd.read_csv(HISTORICAL_CSV)
-    storico["Efficienza"] = storico["Velocità Media (km/h)"] / storico["Frequenza Cardiaca Media"]
-    storico["Load"] = storico["Durata (min)"] * storico["Frequenza Cardiaca Media"]
-    storico["Load_7d"] = storico["Load"].rolling(window=7).mean()
-    storico["Load_28d"] = storico["Load"].rolling(window=28).mean()
-    storico["ACWR"] = storico["Load_7d"] / storico["Load_28d"]
-    storico = storico.dropna()
-
-    X_all = storico[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza", "ACWR"]]
-    y_all = (storico["Frequenza Cardiaca Massima"] > soglia_fc).astype(int)
-
+def allena_modello(file_csv="storico.csv"):
+    df = pd.read_csv(file_csv)
+    df["Efficienza"] = df["Velocità Media (km/h)"] / df["Frequenza Cardiaca Media"]
+    df["Load"] = df["Durata (min)"] * df["Frequenza Cardiaca Media"]
+    df["Load_7d"] = df["Load"].rolling(window=7).mean()
+    df["Load_28d"] = df["Load"].rolling(window=28).mean()
+    df["ACWR"] = df["Load_7d"] / df["Load_28d"]
+    df.dropna(inplace=True)
+    X = df[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza", "ACWR"]]
+    y = (df["Frequenza Cardiaca Massima"] > 150).astype(int)
     scaler = StandardScaler()
-    X_scaled_all = scaler.fit_transform(X_all)
-
+    X_scaled = scaler.fit_transform(X)
     model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_scaled_all, y_all)
+    model.fit(X_scaled, y)
+    return model, scaler
 
-    # Salva modello aggiornato
-    joblib.dump(model, MODEL_PATH)
-    joblib.dump(scaler, SCALER_PATH)
+def prevedi_rischio(df, model, scaler):
+    df["ACWR"] = (df["Durata (min)"] * df["Frequenza Cardiaca Media"]) / (df["Durata (min)"].rolling(28).mean() * df["Frequenza Cardiaca Media"].rolling(28).mean())
+    df["ACWR"].fillna(1.0, inplace=True)
+    X_pred = df[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza", "ACWR"]]
+    df["Probabilità Infortunio"] = model.predict_proba(scaler.transform(X_pred))[:, 1]
+    return df
 
-    # Applica al dataframe corrente
-    df["Probabilità Infortunio"] = model.predict_proba(scaler.transform(features))[:,1]
+# ------------------ Visualizzazioni ------------------
+def mostra_grafici(df):
+    st.line_chart(df.set_index("date")["Frequenza Cardiaca Media"])
+    st.bar_chart(df.set_index("date")["Probabilità Infortunio"])
 
-    # Mostra previsioni future semplici: prossimi 5 giorni (con media carichi recenti)
-    st.subheader("📈 Previsione rischio nei prossimi 5 giorni")
-    sim_future = pd.DataFrame()
-    avg = df[features.columns].tail(7).mean()
-    for i in range(1, 6):
-        sim_day = avg.copy()
-        sim_day["ACWR"] = max(0.1, avg["ACWR"] + 0.05 * i)
-        sim_future = pd.concat([sim_future, sim_day.to_frame().T], ignore_index=True)
-    sim_future_scaled = scaler.transform(sim_future)
-    probs = model.predict_proba(sim_future_scaled)[:, 1]
-    st.line_chart(pd.Series(probs, index=[f"Giorno +{i}" for i in range(1,6)]))
-
-    # Esportazione PDF/CSV dei consigli del giorno selezionato
-    import io
-    import base64
-
-    st.subheader("📤 Esporta consigli e dati")
-    export_date = df_reset["date"].max().strftime("%Y-%m-%d")
-    consigli_export = df_reset[df_reset["date"] == df_reset["date"].max()][["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza", "ACWR", "Probabilità Infortunio"]]
-    csv = consigli_export.to_csv(index=False).encode('utf-8')
-    st.download_button("⬇️ Scarica consigli in CSV", csv, file_name=f"consigli_{export_date}.csv", mime="text/csv")
-
-    # Sommario settimanale
-    st.subheader("🗓️ Riepilogo settimanale")
+def riepilogo_settimanale(df):
+    st.subheader("📊 Riepilogo settimanale")
     last7 = df.tail(7)
     km_tot = last7["Distanza (km)"].sum()
     fc_avg = last7["Frequenza Cardiaca Media"].mean()
@@ -126,11 +117,40 @@ if not df.empty:
     st.markdown(f"**Distanza Totale**: {km_tot:.1f} km")
     st.markdown(f"**Frequenza Cardiaca Media**: {fc_avg:.0f} bpm")
     st.markdown(f"**Rischio Infortunio Medio**: {rischio_medio*100:.1f}%")
-    if rischio_medio > 0.6:
-        st.warning("⚠️ Settimana intensa – considera almeno 1 giorno di recupero")
-    elif rischio_medio > 0.3:
-        st.info("ℹ️ Settimana equilibrata – mantieni monitoraggio frequente")
-    else:
-        st.success("✅ Settimana ben gestita – continua così!")
+
+# ------------------ Suggerimenti ML ------------------
+def suggerisci_carico(df, model, scaler):
+    media = df[["Durata (min)", "Distanza (km)", "Frequenza Cardiaca Media", "Efficienza"]].mean()
+    st.markdown("Proiezione prossimi 5 giorni")
+    sim = []
+    for i in range(1, 6):
+        giorno = media.copy()
+        acwr = 1.0 + (0.05 * i)
+        x = giorno.tolist() + [acwr]
+        prob = model.predict_proba(scaler.transform([x]))[0][1]
+        sim.append(prob)
+    st.line_chart(pd.Series(sim, index=[f"Giorno +{i}" for i in range(1,6)]))
+
+# ------------------ MAIN ------------------
+st.set_page_config(page_title="Coach AI", layout="wide")
+st.title("🤖 Coach AI - Allenamento predittivo personalizzato")
+
+if not login_form():
+    st.stop()
+
+df = inserisci_dati_manuali()
+if df is not None:
+    df = add_to_storico(df)
+    model, scaler = allena_modello()
+    df = prevedi_rischio(df, model, scaler)
+    mostra_grafici(df)
+    suggerisci_carico(df, model, scaler)
+    riepilogo_settimanale(df)
+
+    st.subheader("💬 Fai una domanda al tuo Coach AI")
+    domanda = st.text_input("Scrivi qui la tua domanda")
+    if domanda:
+        st.info("🔍 Funzione di risposta intelligente in arrivo")
+
 
 
