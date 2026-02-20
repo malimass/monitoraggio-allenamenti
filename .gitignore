@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Database (generato a runtime)
+data/coach.db
+data/*.db
+
+# Upload files
+uploads/*
+!uploads/.gitkeep
+
+# Streamlit
+.streamlit/
+
+# Env
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
