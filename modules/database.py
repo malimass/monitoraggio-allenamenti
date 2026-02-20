@@ -115,12 +115,13 @@ def get_user_by_id(user_id: int) -> sqlite3.Row | None:
     return row
 
 
-def create_user(username: str, email: str, password: str, role: str = "user") -> bool:
+def create_user(username: str, email: str, password: str,
+                role: str = "user", coach_id: int | None = None) -> bool:
     try:
         conn = get_connection()
         conn.execute(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?,?,?,?)",
-            (username, email, hash_password(password), role),
+            "INSERT INTO users (username, email, password_hash, role, coach_id) VALUES (?,?,?,?,?)",
+            (username, email, hash_password(password), role, coach_id),
         )
         conn.commit()
         conn.close()
@@ -252,5 +253,47 @@ def get_coach_notes(user_id: int) -> list:
         WHERE cn.user_id=?
         ORDER BY cn.created_at DESC
     """, (user_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+# ── Admin stats helpers ───────────────────────────────────────────────────────
+
+def get_system_stats() -> dict:
+    conn = get_connection()
+    c = conn.cursor()
+    total_users   = c.execute("SELECT COUNT(*) FROM users WHERE role='user'").fetchone()[0]
+    total_coaches = c.execute("SELECT COUNT(*) FROM users WHERE role='coach'").fetchone()[0]
+    total_admins  = c.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
+    total_acts    = c.execute("SELECT COUNT(*) FROM activities").fetchone()[0]
+    total_notes   = c.execute("SELECT COUNT(*) FROM coach_notes").fetchone()[0]
+    active_users  = c.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0]
+    conn.close()
+    return {
+        "total_users": total_users,
+        "total_coaches": total_coaches,
+        "total_admins": total_admins,
+        "total_activities": total_acts,
+        "total_notes": total_notes,
+        "active_users": active_users,
+    }
+
+
+def update_user_password(user_id: int, new_password: str):
+    conn = get_connection()
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?",
+                 (hash_password(new_password), user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_all_activities_admin() -> list:
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT a.*, u.username
+        FROM activities a
+        JOIN users u ON u.id = a.user_id
+        ORDER BY a.date DESC LIMIT 100
+    """).fetchall()
     conn.close()
     return rows
